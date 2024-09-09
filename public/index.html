@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handwriting-to-Text Converter</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        #result { margin-top: 20px; white-space: pre-wrap; }
+        #loading, #error { display: none; color: red; }
+        #preview, #camera-preview { max-width: 100%; margin-top: 10px; }
+        #camera { max-width: 100%; display: block; margin-top: 10px; }
+        #capture-button { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Handwriting-to-Text Converter</h1>
+    <form id="upload-form">
+        <input type="file" id="image-input" name="image" accept="image/*">
+        <button type="button" id="start-camera">Start Camera</button>
+        <button type="button" id="capture-button">Capture Image</button>
+        <button type="submit">Convert to Text</button>
+    </form>
+    <video id="camera" autoplay></video>
+    <canvas id="camera-preview" style="display: none;"></canvas>
+    <img id="preview" src="" alt="Image preview" style="display: none;">
+    <div id="loading">Converting handwriting to text...</div>
+    <div id="error"></div>
+    <div id="result"></div>
+
+    <script>
+        const form = document.getElementById('upload-form');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+        const result = document.getElementById('result');
+        const preview = document.getElementById('preview');
+        const camera = document.getElementById('camera');
+        const cameraPreview = document.getElementById('camera-preview');
+        const imageInput = document.getElementById('image-input');
+        const startCameraButton = document.getElementById('start-camera');
+        const captureButton = document.getElementById('capture-button');
+
+        let capturedImage = null;
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                    camera.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+                capturedImage = null;  // Clear any captured image
+            }
+        });
+
+        startCameraButton.addEventListener('click', async () => {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    camera.srcObject = stream;
+                    camera.style.display = 'block';
+                    preview.style.display = 'none';
+                } catch (error) {
+                    console.error('Error accessing camera:', error);
+                    alert('Unable to access camera. Please check your permissions.');
+                }
+            } else {
+                alert('Camera not supported on this device.');
+            }
+        });
+
+        captureButton.addEventListener('click', () => {
+            if (camera.srcObject) {
+                const context = cameraPreview.getContext('2d');
+                cameraPreview.width = camera.videoWidth;
+                cameraPreview.height = camera.videoHeight;
+                context.drawImage(camera, 0, 0, cameraPreview.width, cameraPreview.height);
+                capturedImage = cameraPreview.toDataURL('image/png');
+                preview.src = capturedImage;
+                preview.style.display = 'block';
+                camera.style.display = 'none';
+                cameraPreview.style.display = 'none';
+                camera.srcObject.getTracks().forEach(track => track.stop()); // Stop the camera stream
+            } else {
+                alert('No camera feed available.');
+            }
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(form);
+
+            if (capturedImage) {
+                formData.append('image', dataURLToBlob(capturedImage), 'captured.png');
+            }
+
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            result.innerHTML = '';
+
+            try {
+                const response = await fetch('/convert', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                } else {
+                    result.innerHTML = `<h3>Converted Text:</h3><p>${data.text}</p>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                error.textContent = `An error occurred: ${error.message}`;
+                error.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        function dataURLToBlob(dataURL) {
+            const [header, data] = dataURL.split(',');
+            const mime = header.match(/:(.*?);/)[1];
+            const binary = atob(data);
+            const array = [];
+            for (let i = 0; i < binary.length; i++) {
+                array.push(binary.charCodeAt(i));
+            }
+            return new Blob([new Uint8Array(array)], { type: mime });
+        }
+    </script>
+</body>
+</html>
